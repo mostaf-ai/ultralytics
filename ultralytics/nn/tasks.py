@@ -589,6 +589,49 @@ class PoseModel(DetectionModel):
         return v8PoseLoss(self)
 
 
+class Pose3dModel(DetectionModel):
+    """
+    YOLO pose model.
+
+    This class extends DetectionModel to handle human pose estimation tasks, providing specialized
+    loss computation for keypoint detection and pose estimation.
+
+    Attributes:
+        kpt_shape (tuple): Shape of keypoints data (num_keypoints, num_dimensions).
+
+    Methods:
+        __init__: Initialize YOLO pose model.
+        init_criterion: Initialize the loss criterion for pose estimation.
+
+    Examples:
+        Initialize a pose model
+        >>> model = PoseModel("yolo11n-pose.yaml", ch=3, nc=1, data_kpt_shape=(17, 3))
+        >>> results = model.predict(image_tensor)
+    """
+
+    def __init__(self, cfg="yolo11n-pose.yaml", ch=3, nc=None, data_kpt_shape=(None, None), verbose=True):
+        """
+        Initialize Ultralytics YOLO Pose model.
+
+        Args:
+            cfg (str | dict): Model configuration file path or dictionary.
+            ch (int): Number of input channels.
+            nc (int, optional): Number of classes.
+            data_kpt_shape (tuple): Shape of keypoints data.
+            verbose (bool): Whether to display model information.
+        """
+        if not isinstance(cfg, dict):
+            cfg = yaml_model_load(cfg)  # load model YAML
+        if any(data_kpt_shape) and list(data_kpt_shape) != list(cfg["kpt_shape"]):
+            LOGGER.info(f"Overriding model.yaml kpt_shape={cfg['kpt_shape']} with kpt_shape={data_kpt_shape}")
+            cfg["kpt_shape"] = data_kpt_shape
+        super().__init__(cfg=cfg, ch=ch, nc=nc, verbose=verbose)
+
+    def init_criterion(self):
+        """Initialize the loss criterion for the PoseModel."""
+        return v8PoseLoss(self)
+
+
 class ClassificationModel(BaseModel):
     """YOLO classification model.
 

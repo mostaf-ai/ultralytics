@@ -133,6 +133,9 @@ venv.bak/
 .vscode/
 .devcontainer/
 
+# Cursor project settings
+.cursor/
+
 # Rope project settings
 .ropeproject
 

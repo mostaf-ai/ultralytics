@@ -15,6 +15,7 @@ from ultralytics.nn.tasks import (
     DetectionModel,
     OBBModel,
     PoseModel,
+    Pose3dModel,
     SegmentationModel,
     WorldModel,
     YOLOEModel,
@@ -108,6 +109,12 @@ class YOLO(Model):
                 "trainer": yolo.pose.PoseTrainer,
                 "validator": yolo.pose.PoseValidator,
                 "predictor": yolo.pose.PosePredictor,
+            },
+            "pose3d": {
+                "model": Pose3dModel,
+                "trainer": yolo.pose3d.Pose3dTrainer,
+                "validator": yolo.pose3d.Pose3dValidator,
+                "predictor": yolo.pose3d.Pose3dPredictor,
             },
             "obb": {
                 "model": OBBModel,
