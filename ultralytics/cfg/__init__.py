@@ -53,12 +53,13 @@ SOLUTION_MAP = {
 
 # Define valid tasks and modes
 MODES = frozenset({"train", "val", "predict", "export", "track", "benchmark"})
-TASKS = frozenset({"detect", "segment", "classify", "pose", "obb"})
+TASKS = frozenset({"detect", "segment", "classify", "pose", "pose3d", "obb"})
 TASK2DATA = {
     "detect": "coco8.yaml",
     "segment": "coco8-seg.yaml",
     "classify": "imagenet10",
     "pose": "coco8-pose.yaml",
+    "pose3d": "panoptic.yaml",
     "obb": "dota8.yaml",
 }
 TASK2MODEL = {
@@ -66,6 +67,7 @@ TASK2MODEL = {
     "segment": "yolo11n-seg.pt",
     "classify": "yolo11n-cls.pt",
     "pose": "yolo11n-pose.pt",
+    "pose3d": "yolov8n-pose3d.pt",
     "obb": "yolo11n-obb.pt",
 }
 TASK2METRIC = {
@@ -73,6 +75,7 @@ TASK2METRIC = {
     "segment": "metrics/mAP50-95(M)",
     "classify": "metrics/accuracy_top1",
     "pose": "metrics/mAP50-95(P)",
+    "pose3d": "metrics/mAP50-95(P)",
     "obb": "metrics/mAP50-95(B)",
 }
 
