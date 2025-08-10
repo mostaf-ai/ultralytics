@@ -81,7 +81,7 @@ class YOLODataset(BaseDataset):
             **kwargs (Any): Additional keyword arguments for the parent class.
         """
         self.use_segments = task == "segment"
-        self.use_keypoints = task == "pose"
+        self.use_keypoints = (task == "pose") | (task == "pose3d")
         self.use_obb = task == "obb"
         self.data = data
         assert not (self.use_segments and self.use_keypoints), "Can not use both segments and keypoints."
