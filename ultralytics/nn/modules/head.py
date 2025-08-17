@@ -384,6 +384,70 @@ class Pose(Detect):
             return y
 
 
+class Pose3d(Pose):
+    """
+    YOLO Pose3d head for predicting both 2D keypoints and 3D bone orientations.
+
+    Attributes:
+        bone_shape (tuple): (num_bones, num_dims) for bone orientations.
+        nb (int): Total number of bone orientation values.
+        cv5 (nn.ModuleList): Convolution layers for bone orientation prediction.
+    """
+
+    def __init__(self, nc: int = 80, kpt_shape: tuple = (17, 3), bone_shape: tuple = (13, 3), ch: tuple = ()):
+        """
+        Args:
+            nc (int): Number of classes.
+            kpt_shape (tuple): (num_keypoints, num_dims) e.g. (17, 3) for x,y,conf.
+            bone_shape (tuple): (num_bones, num_dims) e.g. (13, 3) for 3D orientations.
+            ch (tuple): Tuple of channel sizes from backbone feature maps.
+        """
+        super().__init__(nc, kpt_shape, ch)
+        self.bone_shape = bone_shape
+        self.nb = bone_shape[0] * bone_shape[1]  # total bone values
+
+        c5 = max(ch[0] // 4, self.nb)
+        self.cv5 = nn.ModuleList(
+            nn.Sequential(
+                Conv(x, c5, 3),
+                Conv(c5, c5, 3),
+                nn.Conv2d(c5, self.nb, 1)
+            ) for x in ch
+        )
+
+    def forward(self, x):
+        bs = x[0].shape[0]  # batch size
+
+        # Keypoints branch (same as Pose)
+        kpt = torch.cat([self.cv4[i](x[i]).view(bs, self.nk, -1) for i in range(self.nl)], -1)
+
+        # Bones branch (new)
+        bone = torch.cat([self.cv5[i](x[i]).view(bs, self.nb, -1) for i in range(self.nl)], -1)
+        pred_bone = self.normalize_bone(bs, bone)
+
+        # Detection branch
+        x = Detect.forward(self, x)
+
+        if self.training:
+            return x, kpt, bone
+
+        pred_kpt = self.kpts_decode(bs, kpt)
+
+        if self.export:
+            return (*x, pred_kpt.permute(0, 2, 1), pred_bone.permute(0, 2, 1))
+        else:
+            return (
+                torch.cat([x[0], pred_kpt, pred_bone], 1),
+                (x[1], kpt, pred_bone)
+            )
+
+    def normalize_bone(self, bs: int, bone: torch.Tensor):
+        bone_vectors = bone.view(bs, self.bone_shape[0], self.bone_shape[1], -1)
+        bone_normalized = F.normalize(bone_vectors, p=2, dim=2)
+        bone = bone_normalized.view(bs, self.nb, -1)
+        return bone
+
+
 class Classify(nn.Module):
     """YOLO classification head, i.e. x(b,c1,20,20) to x(b,c2).
 
