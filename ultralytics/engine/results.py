@@ -229,6 +229,7 @@ class Results(SimpleClass, DataExportMixin):
         masks: torch.Tensor | None = None,
         probs: torch.Tensor | None = None,
         keypoints: torch.Tensor | None = None,
+        bones: torch.Tensor | None = None,
         obb: torch.Tensor | None = None,
         speed: dict[str, float] | None = None,
     ) -> None:
@@ -242,6 +243,7 @@ class Results(SimpleClass, DataExportMixin):
             masks (torch.Tensor | None): A 3D tensor of detection masks, where each mask is a binary image.
             probs (torch.Tensor | None): A 1D tensor of probabilities of each class for classification task.
             keypoints (torch.Tensor | None): A 2D tensor of keypoint coordinates for each detection.
+            bones (torch.Tensor | None): A 3D tensor of bone orientation vectors for 3D pose estimation.
             obb (torch.Tensor | None): A 2D tensor of oriented bounding box coordinates for each detection.
             speed (dict | None): A dictionary containing preprocess, inference, and postprocess speeds (ms/image).
 
@@ -258,12 +260,13 @@ class Results(SimpleClass, DataExportMixin):
         self.masks = Masks(masks, self.orig_shape) if masks is not None else None  # native size or imgsz masks
         self.probs = Probs(probs) if probs is not None else None
         self.keypoints = Keypoints(keypoints, self.orig_shape) if keypoints is not None else None
+        self.bones = Bones(bones, self.orig_shape) if bones is not None else None
         self.obb = OBB(obb, self.orig_shape) if obb is not None else None
         self.speed = speed if speed is not None else {"preprocess": None, "inference": None, "postprocess": None}
         self.names = names
         self.path = path
         self.save_dir = None
-        self._keys = "boxes", "masks", "probs", "keypoints", "obb"
+        self._keys = "boxes", "masks", "probs", "keypoints", "bones", "obb"
 
     def __getitem__(self, idx):
         """Return a Results object for a specific index of inference results.
@@ -300,11 +303,20 @@ class Results(SimpleClass, DataExportMixin):
 
     def update(
         self,
+<<<<<<< HEAD
         boxes: torch.Tensor | None = None,
         masks: torch.Tensor | None = None,
         probs: torch.Tensor | None = None,
         obb: torch.Tensor | None = None,
         keypoints: torch.Tensor | None = None,
+=======
+        boxes: Optional[torch.Tensor] = None,
+        masks: Optional[torch.Tensor] = None,
+        probs: Optional[torch.Tensor] = None,
+        obb: Optional[torch.Tensor] = None,
+        keypoints: Optional[torch.Tensor] = None,
+        bones: Optional[torch.Tensor] = None,
+>>>>>>> fcacdfa6c (feat(results): add bones attribute to Results class for 3D orientation data)
     ):
         """Update the Results object with new detection data.
 
@@ -334,6 +346,8 @@ class Results(SimpleClass, DataExportMixin):
             self.obb = OBB(obb, self.orig_shape)
         if keypoints is not None:
             self.keypoints = Keypoints(keypoints, self.orig_shape)
+        if bones is not None:
+            self.bones = Bones(bones)
 
     def _apply(self, fn: str, *args, **kwargs):
         """Apply a function to all non-empty attributes and return a new Results object with modified attributes.
@@ -1200,6 +1214,32 @@ class Keypoints(BaseTensor):
             >>> print(conf.shape)  # torch.Size([1, 17])
         """
         return self.data[..., 2] if self.has_visible else None
+
+
+class Bones(BaseTensor):
+    """
+    A class for storing and manipulating detection bones (3D orientations).
+    """
+
+    def __init__(self, bones: Union[torch.Tensor, np.ndarray]) -> None:
+        """
+        Args:
+            bones (torch.Tensor | np.ndarray): Shape (num_objects, num_bones, 3).
+                                               Each row is a unit vector in camera coordinates.
+        """
+        if bones.ndim == 2:  # single object
+            bones = bones[None, :]
+        super().__init__(bones, None)
+        self.has_conf = self.data.shape[-1] == 4  # if you later add confidence
+
+    @property
+    @lru_cache(maxsize=1)
+    def xyz(self) -> torch.Tensor:
+        """Return x, y, z unit vectors for each bone."""
+        return self.data[..., :3]
+
+    def __repr__(self):
+        return f"Bones(shape={self.data.shape}, device={self.data.device})"
 
 
 class Probs(BaseTensor):
