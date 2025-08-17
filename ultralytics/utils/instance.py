@@ -218,6 +218,7 @@ class Instances:
         bboxes: np.ndarray,
         segments: np.ndarray = None,
         keypoints: np.ndarray = None,
+        bones: np.ndarray = None,
         bbox_format: str = "xywh",
         normalized: bool = True,
     ) -> None:
@@ -232,6 +233,7 @@ class Instances:
         """
         self._bboxes = Bboxes(bboxes=bboxes, format=bbox_format)
         self.keypoints = keypoints
+        self.bones = bones
         self.normalized = normalized
         self.segments = segments
 
@@ -329,12 +331,14 @@ class Instances:
         """
         segments = self.segments[index] if len(self.segments) else self.segments
         keypoints = self.keypoints[index] if self.keypoints is not None else None
+        bones = self.bones[index] if self.bones is not None else None
         bboxes = self.bboxes[index]
         bbox_format = self._bboxes.format
         return Instances(
             bboxes=bboxes,
             segments=segments,
             keypoints=keypoints,
+            bones=bones,
             bbox_format=bbox_format,
             normalized=self.normalized,
         )
@@ -457,6 +461,7 @@ class Instances:
             return instances_list[0]
 
         use_keypoint = instances_list[0].keypoints is not None
+        use_bone = instances_list[0].bones is not None
         bbox_format = instances_list[0]._bboxes.format
         normalized = instances_list[0].normalized
 
@@ -476,7 +481,8 @@ class Instances:
         else:
             cat_segments = np.concatenate([b.segments for b in instances_list], axis=axis)
         cat_keypoints = np.concatenate([b.keypoints for b in instances_list], axis=axis) if use_keypoint else None
-        return cls(cat_boxes, cat_segments, cat_keypoints, bbox_format, normalized)
+        cat_bones = np.concatenate([b.bones for b in instances_list], axis=axis) if use_bone else None
+        return cls(cat_boxes, cat_segments, cat_keypoints, cat_bones, bbox_format, normalized)
 
     @property
     def bboxes(self) -> np.ndarray:
