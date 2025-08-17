@@ -1990,6 +1990,7 @@ class Format:
         normalize: bool = True,
         return_mask: bool = False,
         return_keypoint: bool = False,
+        return_bone: bool=False,
         return_obb: bool = False,
         mask_ratio: int = 4,
         mask_overlap: bool = True,
@@ -2016,6 +2017,7 @@ class Format:
         self.normalize = normalize
         self.return_mask = return_mask  # set False when training detection only
         self.return_keypoint = return_keypoint
+        self.return_bone = return_bone
         self.return_obb = return_obb
         self.mask_ratio = mask_ratio
         self.mask_overlap = mask_overlap
@@ -2070,6 +2072,10 @@ class Format:
         labels["img"] = self._format_img(img)
         labels["cls"] = torch.from_numpy(cls) if nl else torch.zeros(nl, 1)
         labels["bboxes"] = torch.from_numpy(instances.bboxes) if nl else torch.zeros((nl, 4))
+        if self.return_bone:
+            labels["bones"] =  (
+                torch.empty(0, 3) if instances.bones is None else torch.from_numpy(instances.bones)
+            )
         if self.return_keypoint:
             labels["keypoints"] = (
                 torch.empty(0, 3) if instances.keypoints is None else torch.from_numpy(instances.keypoints)
