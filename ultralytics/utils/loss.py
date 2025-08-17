@@ -644,6 +644,153 @@ class v8PoseLoss(v8DetectionLoss):
         return kpts_loss, kpts_obj_loss
 
 
+class v8Pose3dLoss(v8PoseLoss):
+    """Criterion class for computing training losses for YOLOv8 Pose3d (keypoints + bones)."""
+
+    def __init__(self, model):
+        super().__init__(model)
+        self.bone_shape = model.model[-1].bone_shape
+        self.nb = self.bone_shape[0]  # number of bones
+        self.bone_loss_fn = nn.MSELoss()  # or F.cosine_similarity-based loss
+
+    def __call__(self, preds: Any, batch: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        preds: (feats, pred_kpts, pred_bones)
+        batch: must include "keypoints" and "bones" (ground truth normalized 3D vectors)
+        """
+        loss = torch.zeros(6, device=self.device)  # add one extra for bones
+        feats, pred_kpts, pred_bones = preds if isinstance(preds[0], list) else preds[1]
+
+        # --- same as v8PoseLoss for bbox, cls, dfl, kpt ---
+        pred_distri, pred_scores = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split(
+            (self.reg_max * 4, self.nc), 1
+        )
+
+        pred_scores = pred_scores.permute(0, 2, 1).contiguous()
+        pred_distri = pred_distri.permute(0, 2, 1).contiguous()
+        pred_kpts = pred_kpts.permute(0, 2, 1).contiguous()
+        pred_bones = pred_bones.permute(0, 2, 1).contiguous()  # (B, N_anchors, nb*3)
+
+        dtype = pred_scores.dtype
+        imgsz = torch.tensor(feats[0].shape[2:], device=self.device, dtype=dtype) * self.stride[0]
+        anchor_points, stride_tensor = make_anchors(feats, self.stride, 0.5)
+
+        batch_size = pred_scores.shape[0]
+        batch_idx = batch["batch_idx"].view(-1, 1)
+        targets = torch.cat((batch_idx, batch["cls"].view(-1, 1), batch["bboxes"]), 1)
+        targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]])
+        gt_labels, gt_bboxes = targets.split((1, 4), 2)
+        mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
+
+        pred_bboxes = self.bbox_decode(anchor_points, pred_distri)
+        pred_kpts = self.kpts_decode(anchor_points, pred_kpts.view(batch_size, -1, *self.kpt_shape))
+        pred_bones = pred_bones.view(batch_size, -1, *self.bone_shape)
+
+        _, target_bboxes, target_scores, fg_mask, target_gt_idx = self.assigner(
+            pred_scores.detach().sigmoid(),
+            (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
+            anchor_points * stride_tensor,
+            gt_labels,
+            gt_bboxes,
+            mask_gt,
+        )
+
+        target_scores_sum = max(target_scores.sum(), 1)
+        loss[3] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum
+
+        if fg_mask.sum():
+            target_bboxes /= stride_tensor
+            loss[0], loss[4] = self.bbox_loss(
+                pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
+            )
+
+            keypoints = batch["keypoints"].to(self.device).float().clone()
+            keypoints[..., 0] *= imgsz[1]
+            keypoints[..., 1] *= imgsz[0]
+
+            loss[1], loss[2] = self.calculate_keypoints_loss(
+                fg_mask, target_gt_idx, keypoints, batch_idx, stride_tensor, target_bboxes, pred_kpts
+            )
+
+            # --- Bone loss ---
+            bones = batch["bones"].to(self.device).float()
+            loss[5] = self.calculate_bones_loss(fg_mask, target_gt_idx, bones, batch_idx, pred_bones)
+
+        # Apply gains
+        self.hyp.box = self.hyp.pose = self.hyp.kobj = self.hyp.cls = self.hyp.dfl = 0
+        loss[0] *= self.hyp.box
+        loss[1] *= self.hyp.pose
+        loss[2] *= self.hyp.kobj
+        loss[3] *= self.hyp.cls
+        loss[4] *= self.hyp.dfl
+        loss[5] *= self.hyp.bone if hasattr(self.hyp, "bone") else 1.0  # new gain for bones
+
+        return loss * batch_size, loss.detach()
+
+    def calculate_bones_loss(
+        self,
+        masks: torch.Tensor,
+        target_gt_idx: torch.Tensor,
+        bones: torch.Tensor,             # (N_bones_in_batch, N_bones_per_object, bone_dim=3)
+        batch_idx: torch.Tensor,
+        pred_bones: torch.Tensor          # (BS, N_anchors, N_bones_per_object, bone_dim)
+    ) -> torch.Tensor:
+        """
+        Calculate the bones loss for the model.
+
+        Args:
+            masks (torch.Tensor): Binary mask tensor for matched anchors, shape (BS, N_anchors).
+            target_gt_idx (torch.Tensor): Anchor-to-GT mapping, shape (BS, N_anchors).
+            bones (torch.Tensor): GT bones in 3D (unit vectors or offsets),
+                                shape (N_bones_in_batch, N_bones_per_object, 3).
+            batch_idx (torch.Tensor): Batch index for bones, shape (N_bones_in_batch, 1).
+            pred_bones (torch.Tensor): Predicted bones, shape (BS, N_anchors, N_bones_per_object, 3).
+
+        Returns:
+            torch.Tensor: Bone loss (scalar).
+        """
+        batch_idx = batch_idx.flatten()
+        batch_size = len(masks)
+
+        # Find the maximum number of bone sets in any image
+        max_bones = torch.unique(batch_idx, return_counts=True)[1].max()
+
+        # Allocate padded tensor for batched bones
+        batched_bones = torch.zeros(
+            (batch_size, max_bones, bones.shape[1], bones.shape[2]),
+            device=bones.device
+        )
+
+        # Fill in batched bones (TODO: vectorize later)
+        for i in range(batch_size):
+            bones_i = bones[batch_idx == i]
+            batched_bones[i, : bones_i.shape[0]] = bones_i
+
+        # Expand GT indices to match shape
+        target_gt_idx_expanded = target_gt_idx.unsqueeze(-1).unsqueeze(-1)
+
+        # Select bones for matched anchors
+        selected_bones = batched_bones.gather(
+            1, target_gt_idx_expanded.expand(-1, -1, bones.shape[1], bones.shape[2])
+        )
+
+        bone_loss = torch.tensor(0., device=bones.device)
+
+        if masks.any():
+            gt_bones = selected_bones[masks]       # (N_pos, N_bones_per_object, 3)
+            pred_bones_pos = pred_bones[masks]     # (N_pos, N_bones_per_object, 3)
+
+            # If bones are unit vectors, normalize predictions before loss
+            gt_bones = torch.nn.functional.normalize(gt_bones, dim=-1)
+            pred_bones_pos = torch.nn.functional.normalize(pred_bones_pos, dim=-1)
+
+            # Cosine similarity loss: 1 - cos(angle)
+            cos_sim = torch.sum(pred_bones_pos * gt_bones, dim=-1)
+            bone_loss = (1 - cos_sim).mean()
+
+        return bone_loss
+
+
 class v8ClassificationLoss:
     """Criterion class for computing training losses for classification."""
 
