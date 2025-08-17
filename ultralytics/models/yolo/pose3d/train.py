@@ -100,10 +100,11 @@ class Pose3dTrainer(yolo.detect.DetectionTrainer):
         """Set keypoints shape attribute of Pose3dModel."""
         super().set_model_attributes()
         self.model.kpt_shape = self.data["kpt_shape"]
+        self.model.bone_shape = self.data["bone_shape"]
 
     def get_validator(self):
         """Return an instance of the PoseValidator class for validation."""
-        self.loss_names = "box_loss", "pose_loss", "kobj_loss", "cls_loss", "dfl_loss"
+        self.loss_names = "box_loss", "pose_loss", "kobj_loss", "cls_loss", "dfl_loss", "bone_loss"
         return yolo.pose3d.Pose3dValidator(
             self.test_loader, save_dir=self.save_dir, args=copy(self.args), _callbacks=self.callbacks
         )
@@ -124,5 +125,7 @@ class Pose3dTrainer(yolo.detect.DetectionTrainer):
         """
         data = super().get_dataset()
         if "kpt_shape" not in data:
-            raise KeyError(f"No `kpt_shape` in the {self.args.data}. See https://docs.ultralytics.com/datasets/pose/")
+            raise KeyError(f"No `kpt_shape` in the {self.args.data}. See https://docs.ultralytics.com/datasets/pose3d/")
+        if "bone_shape" not in data:
+            raise KeyError(f"No `kpt_shape` in the {self.args.data}. See https://docs.ultralytics.com/datasets/pose3d/")
         return data
