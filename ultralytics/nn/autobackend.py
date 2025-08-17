@@ -214,6 +214,8 @@ class AutoBackend(nn.Module):
             # Common PyTorch model processing
             if hasattr(model, "kpt_shape"):
                 kpt_shape = model.kpt_shape  # pose-only
+            if hasattr(model, "bone_shape"):
+                bone_shape = model.bone_shape  # pose3d-only
             stride = max(int(model.stride.max()), 32)  # model stride
             names = model.module.names if hasattr(model, "module") else model.names  # get class names
             model.half() if fp16 else model.float()
@@ -643,7 +645,11 @@ class AutoBackend(nn.Module):
             imgsz = metadata["imgsz"]
             names = metadata["names"]
             kpt_shape = metadata.get("kpt_shape")
+<<<<<<< HEAD
             kpt_names = metadata.get("kpt_names")
+=======
+            bone_shape = metadata.get("bone_shape")
+>>>>>>> e84ddce85 (feat(autobackend): add support for bone_shape in model metadata handling)
             end2end = metadata.get("args", {}).get("nms", False)
             dynamic = metadata.get("args", {}).get("dynamic", dynamic)
             ch = metadata.get("channels", 3)
