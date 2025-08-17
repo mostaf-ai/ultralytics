@@ -55,6 +55,7 @@ from ultralytics.nn.modules import (
     Index,
     LRPCHead,
     Pose,
+    Pose3d,
     RepC3,
     RepConv,
     RepNCSPELAN4,
@@ -77,6 +78,7 @@ from ultralytics.utils.loss import (
     v8DetectionLoss,
     v8OBBLoss,
     v8PoseLoss,
+    v8Pose3dLoss,
     v8SegmentationLoss,
 )
 from ultralytics.utils.ops import make_divisible
@@ -387,6 +389,8 @@ class DetectionModel(BaseModel):
         self.names = {i: f"{i}" for i in range(self.yaml["nc"])}  # default names dict
         self.inplace = self.yaml.get("inplace", True)
         self.end2end = getattr(self.model[-1], "end2end", False)
+        for key, value in self.yaml.items():
+            setattr(self, key, value)
 
         # Build strides
         m = self.model[-1]  # Detect()
@@ -398,7 +402,7 @@ class DetectionModel(BaseModel):
                 """Perform a forward pass through the model, handling different Detect subclass types accordingly."""
                 if self.end2end:
                     return self.forward(x)["one2many"]
-                return self.forward(x)[0] if isinstance(m, (Segment, YOLOESegment, Pose, OBB)) else self.forward(x)
+                return self.forward(x)[0] if isinstance(m, (Segment, YOLOESegment, Pose, Pose3d, OBB)) else self.forward(x)
 
             self.model.eval()  # Avoid changing batch statistics until training begins
             m.training = True  # Setting it to True to properly return strides
@@ -609,7 +613,7 @@ class Pose3dModel(DetectionModel):
         >>> results = model.predict(image_tensor)
     """
 
-    def __init__(self, cfg="yolo11n-pose.yaml", ch=3, nc=None, data_kpt_shape=(None, None), verbose=True):
+    def __init__(self, cfg="yolo11n-pose3d.yaml", ch=3, nc=None, data_kpt_shape=(None, None), verbose=True):
         """
         Initialize Ultralytics YOLO Pose model.
 
@@ -629,7 +633,7 @@ class Pose3dModel(DetectionModel):
 
     def init_criterion(self):
         """Initialize the loss criterion for the PoseModel."""
-        return v8PoseLoss(self)
+        return v8Pose3dLoss(self)
 
 
 class ClassificationModel(BaseModel):
@@ -1543,9 +1547,9 @@ def parse_model(d, ch, verbose=True):
     legacy = True  # backward compatibility for v3/v5/v8/v9 models
     max_channels = float("inf")
     nc, act, scales = (d.get(x) for x in ("nc", "activation", "scales"))
-    depth, width, kpt_shape = (d.get(x, 1.0) for x in ("depth_multiple", "width_multiple", "kpt_shape"))
-    scale = d.get("scale")
+    depth, width, kpt_shape, bone_shape = (d.get(x, 1.0) for x in ("depth_multiple", "width_multiple", "kpt_shape", "bone_shape"))
     if scales:
+        scale = d.get("scale")
         if not scale:
             scale = next(iter(scales.keys()))
             LOGGER.warning(f"no model scale passed. Assuming scale='{scale}'.")
@@ -1667,12 +1671,12 @@ def parse_model(d, ch, verbose=True):
         elif m is Concat:
             c2 = sum(ch[x] for x in f)
         elif m in frozenset(
-            {Detect, WorldDetect, YOLOEDetect, Segment, YOLOESegment, Pose, OBB, ImagePoolingAttn, v10Detect}
+            {Detect, WorldDetect, YOLOEDetect, Segment, YOLOESegment, Pose, Pose3d, OBB, ImagePoolingAttn, v10Detect}
         ):
             args.append([ch[x] for x in f])
             if m is Segment or m is YOLOESegment:
                 args[2] = make_divisible(min(args[2], max_channels) * width, 8)
-            if m in {Detect, YOLOEDetect, Segment, YOLOESegment, Pose, OBB}:
+            if m in {Detect, YOLOEDetect, Segment, YOLOESegment, Pose, Pose3d, OBB}:
                 m.legacy = legacy
         elif m is RTDETRDecoder:  # special case, channels arg must be passed in index 1
             args.insert(1, [ch[x] for x in f])
@@ -1762,6 +1766,8 @@ def guess_model_task(model):
             return "segment"
         if m == "pose":
             return "pose"
+        if m == "pose3d":
+            return 'pose3d'
         if m == "obb":
             return "obb"
 
@@ -1784,6 +1790,8 @@ def guess_model_task(model):
                 return "classify"
             elif isinstance(m, Pose):
                 return "pose"
+            elif isinstance(m, Pose3d):
+                return "pose3d"
             elif isinstance(m, OBB):
                 return "obb"
             elif isinstance(m, (Detect, WorldDetect, YOLOEDetect, v10Detect)):
@@ -1798,6 +1806,8 @@ def guess_model_task(model):
             return "classify"
         elif "-pose" in model.stem or "pose" in model.parts:
             return "pose"
+        elif "-pose3d" in model.stem or "pose3d" in model.parts:
+            return "pose3d"
         elif "-obb" in model.stem or "obb" in model.parts:
             return "obb"
         elif "detect" in model.parts:
@@ -1806,6 +1816,6 @@ def guess_model_task(model):
     # Unable to determine task from model
     LOGGER.warning(
         "Unable to automatically guess model task, assuming 'task=detect'. "
-        "Explicitly define task for your model, i.e. 'task=detect', 'segment', 'classify','pose' or 'obb'."
+        "Explicitly define task for your model, i.e. 'task=detect', 'segment', 'classify','pose', 'pose3d' or 'obb'."
     )
     return "detect"  # assume detect
