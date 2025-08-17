@@ -73,8 +73,11 @@ class Pose3dPredictor(DetectionPredictor):
         """
         result = super().construct_result(pred, img, orig_img, img_path)
         # Extract keypoints from prediction and reshape according to model's keypoint shape
-        pred_kpts = pred[:, 6:].view(len(pred), *self.model.kpt_shape)
+        kpt_len = self.model.kpt_shape[0] * self.model.kpt_shape[1]
+        pred_kpts = pred[:, 6:6+kpt_len].view(len(pred), *self.model.kpt_shape)
         # Scale keypoints coordinates to match the original image dimensions
         pred_kpts = ops.scale_coords(img.shape[2:], pred_kpts, orig_img.shape)
+        pred_bones = pred[:, 6+kpt_len:].view(len(pred), *self.model.bone_shape)
         result.update(keypoints=pred_kpts)
+        result.update(bones=pred_bones)
         return result
