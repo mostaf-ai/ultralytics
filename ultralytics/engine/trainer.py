@@ -644,6 +644,7 @@ class BaseTrainer:
                 "detect",
                 "segment",
                 "pose",
+                "pose3d",
                 "obb",
             }:
                 data = check_det_dataset(self.args.data)
