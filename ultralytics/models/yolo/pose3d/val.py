@@ -85,6 +85,7 @@ class Pose3dValidator(DetectionValidator):
         """Preprocess batch by converting keypoints data to float and moving it to the device."""
         batch = super().preprocess(batch)
         batch["keypoints"] = batch["keypoints"].to(self.device).float()
+        batch["bones"] = batch["bones"].to(self.device).float()
         return batch
 
     def get_desc(self) -> str:
@@ -112,6 +113,7 @@ class Pose3dValidator(DetectionValidator):
         """
         super().init_metrics(model)
         self.kpt_shape = self.data["kpt_shape"]
+        self.bone_shape = self.data["bone_shape"]
         is_pose = self.kpt_shape == [17, 3]
         nkpt = self.kpt_shape[0]
         self.sigma = OKS_SIGMA if is_pose else np.ones(nkpt) / nkpt
@@ -143,7 +145,10 @@ class Pose3dValidator(DetectionValidator):
         """
         preds = super().postprocess(preds)
         for pred in preds:
-            pred["keypoints"] = pred.pop("extra").view(-1, *self.kpt_shape)  # remove extra if exists
+            extra = pred.pop("extra")
+            kpt_len = self.kpt_shape[0]*self.kpt_shape[1]
+            pred["keypoints"] = extra[:, :kpt_len].view(-1, *self.kpt_shape)
+            pred["bones"] = extra[:, kpt_len:].view(-1, *self.bone_shape)
         return preds
 
     def _prepare_batch(self, si: int, batch: Dict[str, Any]) -> Dict[str, Any]:
