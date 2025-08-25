@@ -717,13 +717,12 @@ class v8Pose3dLoss(v8PoseLoss):
             loss[5] = self.calculate_bones_loss(fg_mask, target_gt_idx, bones, batch_idx, pred_bones)
 
         # Apply gains
-        self.hyp.box = self.hyp.pose = self.hyp.kobj = self.hyp.cls = self.hyp.dfl = 0
         loss[0] *= self.hyp.box
         loss[1] *= self.hyp.pose
         loss[2] *= self.hyp.kobj
         loss[3] *= self.hyp.cls
         loss[4] *= self.hyp.dfl
-        loss[5] *= self.hyp.bone if hasattr(self.hyp, "bone") else 1.0  # new gain for bones
+        loss[5] *= self.hyp.bone if hasattr(self.hyp, "bone") else 2.0  # new gain for bones
 
         return loss * batch_size, loss.detach()
 
