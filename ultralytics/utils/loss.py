@@ -722,7 +722,7 @@ class v8Pose3dLoss(v8PoseLoss):
         loss[2] *= self.hyp.kobj
         loss[3] *= self.hyp.cls
         loss[4] *= self.hyp.dfl
-        loss[5] *= self.hyp.bone if hasattr(self.hyp, "bone") else 2.0  # new gain for bones
+        loss[5] *= self.hyp.bone
 
         return loss * batch_size, loss.detach()
 
