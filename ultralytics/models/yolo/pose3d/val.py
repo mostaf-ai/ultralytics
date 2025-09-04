@@ -8,7 +8,7 @@ import torch
 
 from ultralytics.models.yolo.detect import DetectionValidator
 from ultralytics.utils import LOGGER, ops
-from ultralytics.utils.metrics import OKS_SIGMA, PoseMetrics, kpt_iou
+from ultralytics.utils.metrics import OKS_SIGMA, Pose3dMetrics, kpt_iou
 
 
 class Pose3dValidator(DetectionValidator):
@@ -74,7 +74,7 @@ class Pose3dValidator(DetectionValidator):
         self.sigma = None
         self.kpt_shape = None
         self.args.task = "pose3d"
-        self.metrics = PoseMetrics()
+        self.metrics = Pose3dMetrics()
         if isinstance(self.args.device, str) and self.args.device.lower() == "mps":
             LOGGER.warning(
                 "Apple MPS known Pose bug. Recommend 'device=cpu' for Pose models. "
@@ -90,7 +90,7 @@ class Pose3dValidator(DetectionValidator):
 
     def get_desc(self) -> str:
         """Return description of evaluation metrics in string format."""
-        return ("%22s" + "%11s" * 10) % (
+        return ("%22s" + "%11s" * 10 + "%11s" * 6) % (
             "Class",
             "Images",
             "Instances",
@@ -102,6 +102,12 @@ class Pose3dValidator(DetectionValidator):
             "R",
             "mAP50",
             "mAP50-95)",
+            "Bones(AngErr",
+            "CosSim",
+            "MagErr",
+            "Cons",
+            "ValRate",
+            "Conf)",
         )
 
     def init_metrics(self, model: torch.nn.Module) -> None:
@@ -120,35 +126,22 @@ class Pose3dValidator(DetectionValidator):
 
     def postprocess(self, preds: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
-        Postprocess YOLO predictions to extract and reshape keypoints for pose estimation.
+        Postprocess YOLO predictions to extract and reshape keypoints and bones for pose3d.
 
-        This method extends the parent class postprocessing by extracting keypoints from the 'extra'
-        field of predictions and reshaping them according to the keypoint shape configuration.
-        The keypoints are reshaped from a flattened format to the proper dimensional structure
-        (typically [N, 17, 3] for COCO pose format).
-
-        Args:
-            preds (torch.Tensor): Raw prediction tensor from the YOLO pose model containing
-                bounding boxes, confidence scores, class predictions, and keypoint data.
-
-        Returns:
-            (Dict[torch.Tensor]): Dict of processed prediction dictionaries, each containing:
-                - 'bboxes': Bounding box coordinates
-                - 'conf': Confidence scores
-                - 'cls': Class predictions
-                - 'keypoints': Reshaped keypoint coordinates with shape (-1, *self.kpt_shape)
-
-        Note:
-            If no keypoints are present in a prediction (empty keypoints), that prediction
-            is skipped and continues to the next one. The keypoints are extracted from the
-            'extra' field which contains additional task-specific data beyond basic detection.
+        The base detector returns a dict with 'extra' containing all task-specific outputs.
+        For pose3d, 'extra' packs [kpt_flat, bone_flat]. We split and reshape both.
         """
         preds = super().postprocess(preds)
+        kpt_len = self.kpt_shape[0] * self.kpt_shape[1]
+        bone_len = self.bone_shape[0] * self.bone_shape[1]
         for pred in preds:
             extra = pred.pop("extra")
-            kpt_len = self.kpt_shape[0]*self.kpt_shape[1]
+            if extra.numel() == 0:
+                pred["keypoints"] = extra.view(0, *self.kpt_shape)
+                pred["bones"] = extra.view(0, *self.bone_shape)
+                continue
             pred["keypoints"] = extra[:, :kpt_len].view(-1, *self.kpt_shape)
-            pred["bones"] = extra[:, kpt_len:].view(-1, *self.bone_shape)
+            pred["bones"] = extra[:, kpt_len : kpt_len + bone_len].view(-1, *self.bone_shape)
         return preds
 
     def _prepare_batch(self, si: int, batch: Dict[str, Any]) -> Dict[str, Any]:
@@ -173,6 +166,7 @@ class Pose3dValidator(DetectionValidator):
         kpts[..., 0] *= w
         kpts[..., 1] *= h
         pbatch["keypoints"] = kpts
+        pbatch["bones"] = batch["bones"][batch["batch_idx"] == si]
         return pbatch
 
     def _process_batch(self, preds: Dict[str, torch.Tensor], batch: Dict[str, Any]) -> Dict[str, np.ndarray]:
@@ -203,7 +197,39 @@ class Pose3dValidator(DetectionValidator):
             iou = kpt_iou(batch["keypoints"], preds["keypoints"], sigma=self.sigma, area=area)
             tp_p = self.match_predictions(preds["cls"], gt_cls, iou).cpu().numpy()
         tp.update({"tp_p": tp_p})  # update tp with kpts IoU
+        
+        # Add bone orientation metrics
+        if "bones" in preds and "bones" in batch:
+            self._add_bone_metrics(preds, batch)
+        
         return tp
+
+    def _add_bone_metrics(self, preds: Dict[str, torch.Tensor], batch: Dict[str, Any]) -> None:
+        """
+        Add bone orientation metrics to the metrics object.
+        
+        Args:
+            preds: Dictionary containing predictions with 'bones' key
+            batch: Dictionary containing ground truth with 'bones' key
+        """
+        try:
+            # Extract bone predictions and ground truth
+            pred_bones = preds["bones"].cpu().numpy()
+            gt_bones = batch["bones"].cpu().numpy()
+            
+            # Get confidence scores for bones (use detection confidence as proxy)
+            if "conf" in preds:
+                confidence_scores = preds["conf"].cpu().numpy()
+                # Expand confidence to match bone dimensions
+                bone_conf = np.tile(confidence_scores[:, np.newaxis], (1, pred_bones.shape[1]))
+            else:
+                bone_conf = None
+            
+            # Add bone metrics to the metrics object
+            self.metrics.add_bone_metrics(pred_bones, gt_bones, bone_conf)
+            
+        except Exception as e:
+            LOGGER.warning(f"Failed to add bone metrics: {e}")
 
     def save_one_txt(self, predn: Dict[str, torch.Tensor], save_conf: bool, shape: Tuple[int, int], file: Path) -> None:
         """
