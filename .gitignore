@@ -130,6 +130,7 @@ venv.bak/
 .spyproject
 
 # VSCode project settings
+.cursor/
 .vscode/
 .devcontainer/
 
