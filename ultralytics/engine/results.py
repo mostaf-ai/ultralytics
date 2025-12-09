@@ -303,20 +303,12 @@ class Results(SimpleClass, DataExportMixin):
 
     def update(
         self,
-<<<<<<< HEAD
         boxes: torch.Tensor | None = None,
         masks: torch.Tensor | None = None,
         probs: torch.Tensor | None = None,
         obb: torch.Tensor | None = None,
         keypoints: torch.Tensor | None = None,
-=======
-        boxes: Optional[torch.Tensor] = None,
-        masks: Optional[torch.Tensor] = None,
-        probs: Optional[torch.Tensor] = None,
-        obb: Optional[torch.Tensor] = None,
-        keypoints: Optional[torch.Tensor] = None,
-        bones: Optional[torch.Tensor] = None,
->>>>>>> fcacdfa6c (feat(results): add bones attribute to Results class for 3D orientation data)
+        bones: torch.Tensor | None = None,
     ):
         """Update the Results object with new detection data.
 

@@ -637,7 +637,7 @@ class AutoBackend(nn.Module):
             for k, v in metadata.items():
                 if k in {"stride", "batch", "channels"}:
                     metadata[k] = int(v)
-                elif k in {"imgsz", "names", "kpt_shape", "kpt_names", "args"} and isinstance(v, str):
+                elif k in {"imgsz", "names", "kpt_shape", "kpt_names", "bone_shape", "args"} and isinstance(v, str):
                     metadata[k] = ast.literal_eval(v)
             stride = metadata["stride"]
             task = metadata["task"]
@@ -645,11 +645,8 @@ class AutoBackend(nn.Module):
             imgsz = metadata["imgsz"]
             names = metadata["names"]
             kpt_shape = metadata.get("kpt_shape")
-<<<<<<< HEAD
             kpt_names = metadata.get("kpt_names")
-=======
             bone_shape = metadata.get("bone_shape")
->>>>>>> e84ddce85 (feat(autobackend): add support for bone_shape in model metadata handling)
             end2end = metadata.get("args", {}).get("nms", False)
             dynamic = metadata.get("args", {}).get("dynamic", dynamic)
             ch = metadata.get("channels", 3)
