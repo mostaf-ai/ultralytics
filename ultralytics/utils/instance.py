@@ -348,6 +348,10 @@ class Instances:
 
         Args:
             h (int): Image height.
+        
+        Note:
+            For pose3d tasks, vertical flip is disabled as it would incorrectly transform
+            3D bone orientations in camera coordinate system. Bones remain unchanged.
         """
         if self._bboxes.format == "xyxy":
             y1 = self.bboxes[:, 1].copy()
@@ -359,6 +363,11 @@ class Instances:
         self.segments[..., 1] = h - self.segments[..., 1]
         if self.keypoints is not None:
             self.keypoints[..., 1] = h - self.keypoints[..., 1]
+        # Bones are in camera coordinate system and should NOT be transformed by vertical flip
+        # Vertical flip is disabled for pose3d tasks in v8_transforms
+        # if self.bones is not None:
+        #     # Do not transform bones - they're in camera coordinates
+        #     pass
 
     def fliplr(self, w: int) -> None:
         """Flip coordinates horizontally.
@@ -376,6 +385,9 @@ class Instances:
         self.segments[..., 0] = w - self.segments[..., 0]
         if self.keypoints is not None:
             self.keypoints[..., 0] = w - self.keypoints[..., 0]
+        if self.bones is not None:
+            # Flip bones in camera coordinate system: negate X component
+            self.bones[..., 0] *= -1
 
     def clip(self, w: int, h: int) -> None:
         """Clip coordinates to stay within image boundaries.
@@ -416,21 +428,26 @@ class Instances:
                 self.segments = self.segments[good]
             if self.keypoints is not None:
                 self.keypoints = self.keypoints[good]
+            if self.bones is not None:
+                self.bones = self.bones[good]
         return good
 
-    def update(self, bboxes: np.ndarray, segments: np.ndarray = None, keypoints: np.ndarray = None):
+    def update(self, bboxes: np.ndarray, segments: np.ndarray = None, keypoints: np.ndarray = None, bones: np.ndarray = None):
         """Update instance variables.
 
         Args:
             bboxes (np.ndarray): New bounding boxes.
             segments (np.ndarray, optional): New segments.
             keypoints (np.ndarray, optional): New keypoints.
+            bones (np.ndarray, optional): New bone orientations.
         """
         self._bboxes = Bboxes(bboxes, format=self._bboxes.format)
         if segments is not None:
             self.segments = segments
         if keypoints is not None:
             self.keypoints = keypoints
+        if bones is not None:
+            self.bones = bones
 
     def __len__(self) -> int:
         """Return the number of instances."""

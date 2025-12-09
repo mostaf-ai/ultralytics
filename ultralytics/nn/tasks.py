@@ -595,33 +595,35 @@ class PoseModel(DetectionModel):
 
 class Pose3dModel(DetectionModel):
     """
-    YOLO pose model.
+    YOLO Pose3d model for 3D pose estimation.
 
-    This class extends DetectionModel to handle human pose estimation tasks, providing specialized
-    loss computation for keypoint detection and pose estimation.
+    This class extends DetectionModel to handle 3D human pose estimation tasks, providing specialized
+    loss computation for keypoint detection and bone orientation estimation.
 
     Attributes:
         kpt_shape (tuple): Shape of keypoints data (num_keypoints, num_dimensions).
+        bone_shape (tuple): Shape of bone orientations (num_bones, 3).
 
     Methods:
-        __init__: Initialize YOLO pose model.
-        init_criterion: Initialize the loss criterion for pose estimation.
+        __init__: Initialize YOLO Pose3d model.
+        init_criterion: Initialize the loss criterion for pose3d estimation.
 
     Examples:
-        Initialize a pose model
-        >>> model = PoseModel("yolo11n-pose.yaml", ch=3, nc=1, data_kpt_shape=(17, 3))
+        Initialize a pose3d model
+        >>> model = Pose3dModel("yolo11n-pose3d.yaml", ch=3, nc=1, data_kpt_shape=(17, 3), data_bone_shape=(13, 3))
         >>> results = model.predict(image_tensor)
     """
 
-    def __init__(self, cfg="yolo11n-pose3d.yaml", ch=3, nc=None, data_kpt_shape=(None, None), verbose=True):
+    def __init__(self, cfg="yolo11n-pose3d.yaml", ch=3, nc=None, data_kpt_shape=(None, None), data_bone_shape=(None, None), verbose=True):
         """
-        Initialize Ultralytics YOLO Pose model.
+        Initialize Ultralytics YOLO Pose3d model.
 
         Args:
             cfg (str | dict): Model configuration file path or dictionary.
             ch (int): Number of input channels.
             nc (int, optional): Number of classes.
             data_kpt_shape (tuple): Shape of keypoints data.
+            data_bone_shape (tuple): Shape of bone orientations.
             verbose (bool): Whether to display model information.
         """
         if not isinstance(cfg, dict):
@@ -629,6 +631,9 @@ class Pose3dModel(DetectionModel):
         if any(data_kpt_shape) and list(data_kpt_shape) != list(cfg["kpt_shape"]):
             LOGGER.info(f"Overriding model.yaml kpt_shape={cfg['kpt_shape']} with kpt_shape={data_kpt_shape}")
             cfg["kpt_shape"] = data_kpt_shape
+        if any(data_bone_shape) and list(data_bone_shape) != list(cfg["bone_shape"]):
+            LOGGER.info(f"Overriding model.yaml bone_shape={cfg['bone_shape']} with bone_shape={data_bone_shape}")
+            cfg["bone_shape"] = data_bone_shape
         super().__init__(cfg=cfg, ch=ch, nc=nc, verbose=verbose)
 
     def init_criterion(self):

@@ -1,0 +1,82 @@
+# Ultralytics YOLO 🚀 Pose3D Dataset Configuration
+# This is a sample configuration for Pose3D datasets with 3D bone orientations
+
+# Dataset paths
+path: ../datasets/pose3d-sample  # dataset root dir
+train: images/train  # train images (relative to 'path')
+val: images/val  # val images (relative to 'path')
+test:  # test images (optional)
+
+# Number of classes
+nc: 1  # number of classes (typically 1 for person)
+
+# Class names
+names:
+  0: person
+
+# Keypoint configuration
+kpt_shape: [17, 3]  # [number of keypoints, dimensions (x, y, visibility)]
+# COCO keypoint order:
+# 0: nose, 1: left_eye, 2: right_eye, 3: left_ear, 4: right_ear
+# 5: left_shoulder, 6: right_shoulder, 7: left_elbow, 8: right_elbow
+# 9: left_wrist, 10: right_wrist, 11: left_hip, 12: right_hip
+# 13: left_knee, 14: right_knee, 15: left_ankle, 16: right_ankle
+
+# Bone configuration (3D unit vectors in camera coordinate system)
+bone_shape: [13, 3]  # [number of bones, 3D vector dimensions (x, y, z)]
+# Bone structure (example - adjust based on your skeleton):
+# 0: nose->neck, 1: neck->left_shoulder, 2: neck->right_shoulder
+# 3: left_shoulder->left_elbow, 4: left_elbow->left_wrist
+# 5: right_shoulder->right_elbow, 6: right_elbow->right_wrist
+# 7: neck->left_hip, 8: neck->right_hip
+# 9: left_hip->left_knee, 10: left_knee->left_ankle
+# 11: right_hip->right_knee, 12: right_knee->right_ankle
+
+# Keypoint flip indices for horizontal flip augmentation
+# Maps left keypoints to right keypoints and vice versa
+flip_idx: [0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15]
+# Explanation:
+# nose (0) stays at 0
+# left_eye (1) ↔ right_eye (2)
+# left_ear (3) ↔ right_ear (4)
+# left_shoulder (5) ↔ right_shoulder (6)
+# left_elbow (7) ↔ right_elbow (8)
+# left_wrist (9) ↔ right_wrist (10)
+# left_hip (11) ↔ right_hip (12)
+# left_knee (13) ↔ right_knee (14)
+# left_ankle (15) ↔ right_ankle (16)
+
+# Data format notes:
+# Label format: class x_center y_center width height kpt1_x kpt1_y kpt1_v ... kpt17_x kpt17_y kpt17_v bone1_x bone1_y bone1_z ... bone13_x bone13_y bone13_z
+# - Bounding box: normalized [0, 1]
+# - Keypoints: normalized [0, 1] for x,y; visibility in [0, 1, 2]
+# - Bones: 3D unit vectors (should have magnitude ~1.0)
+
+# Training hyperparameters (recommended for pose3d)
+# See pose3d_augmentation_guide.md for detailed explanations
+
+# Safe augmentations for camera-space bones
+hsv_h: 0.015  # Image HSV-Hue augmentation
+hsv_s: 0.7    # Image HSV-Saturation augmentation
+hsv_v: 0.4    # Image HSV-Value augmentation
+translate: 0.1  # Image translation (+/- fraction)
+scale: 0.5    # Image scale (+/- gain)
+fliplr: 0.5   # Image flip left-right (probability)
+mosaic: 1.0   # Image mosaic (probability)
+mixup: 0.1    # Image mixup (probability)
+cutmix: 0.1   # Image cutmix (probability)
+
+# Disabled augmentations (unsafe for camera-space bones)
+degrees: 0.0      # Image rotation (+/- deg) - DISABLED
+shear: 0.0        # Image shear (+/- deg) - DISABLED
+perspective: 0.0  # Image perspective (+/- fraction) - DISABLED
+flipud: 0.0       # Image flip up-down (probability) - DISABLED
+copy_paste: 0.0   # Segment copy-paste (probability) - DISABLED
+
+# Download script (optional)
+# download: |
+#   # Add download script here if dataset needs to be downloaded
+#   # Example:
+#   # curl -L https://example.com/pose3d-dataset.zip -o dataset.zip
+#   # unzip dataset.zip
+

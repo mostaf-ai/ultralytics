@@ -1226,6 +1226,9 @@ class RandomPerspective:
         perspective distortion on the input image and adjusts the corresponding bounding boxes, segments, and keypoints
         accordingly.
 
+        For pose3d tasks (when bones are present), only translation and scaling are applied to preserve
+        3D bone orientations in camera coordinate system.
+
         Args:
             labels (dict[str, Any]): A dictionary containing image data and annotations.
 
@@ -1266,23 +1269,41 @@ class RandomPerspective:
         instances.convert_bbox(format="xyxy")
         instances.denormalize(*img.shape[:2][::-1])
 
+        # For pose3d: only apply translation and scaling (preserve 3D bone orientations)
+        has_bones = instances.bones is not None and len(instances.bones) > 0
+        if has_bones:
+            # Temporarily disable rotation, shear, and perspective for bones
+            original_degrees = self.degrees
+            original_shear = self.shear
+            original_perspective = self.perspective
+            self.degrees = 0.0
+            self.shear = 0.0
+            self.perspective = 0.0
+
         border = labels.pop("mosaic_border", self.border)
         self.size = img.shape[1] + border[1] * 2, img.shape[0] + border[0] * 2  # w, h
         # M is affine matrix
         # Scale for func:`box_candidates`
         img, M, scale = self.affine_transform(img, border)
 
+        # Restore original values if we modified them
+        if has_bones:
+            self.degrees = original_degrees
+            self.shear = original_shear
+            self.perspective = original_perspective
+
         bboxes = self.apply_bboxes(instances.bboxes, M)
 
         segments = instances.segments
         keypoints = instances.keypoints
+        bones = instances.bones  # Preserve bones (they're in camera coordinates, unaffected by 2D transforms)
         # Update bboxes if there are segments.
         if len(segments):
             bboxes, segments = self.apply_segments(segments, M)
 
         if keypoints is not None:
             keypoints = self.apply_keypoints(keypoints, M)
-        new_instances = Instances(bboxes, segments, keypoints, bbox_format="xyxy", normalized=False)
+        new_instances = Instances(bboxes, segments, keypoints, bones, bbox_format="xyxy", normalized=False)
         # Clip
         new_instances.clip(*self.size)
 
@@ -1990,7 +2011,7 @@ class Format:
         normalize: bool = True,
         return_mask: bool = False,
         return_keypoint: bool = False,
-        return_bone: bool=False,
+        return_bone: bool = False,
         return_obb: bool = False,
         mask_ratio: int = 4,
         mask_overlap: bool = True,
@@ -2427,6 +2448,13 @@ def v8_transforms(dataset, imgsz: int, hyp: IterableSimpleNamespace, stretch: bo
             )
         )
     flip_idx = dataset.data.get("flip_idx", [])  # for keypoints augmentation
+    use_bones = dataset.use_bones  # Check if pose3d task
+    
+    # For pose3d: disable vertical flip (would incorrectly transform 3D bone vectors)
+    if use_bones:
+        hyp.flipud = 0.0  # Disable vertical flip for pose3d
+        LOGGER.info("Pose3d task detected: disabling vertical flip to preserve 3D bone orientations in camera coordinates.")
+    
     if dataset.use_keypoints:
         kpt_shape = dataset.data.get("kpt_shape", None)
         if len(flip_idx) == 0 and (hyp.fliplr > 0.0 or hyp.flipud > 0.0):

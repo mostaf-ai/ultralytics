@@ -13,61 +13,59 @@ from ultralytics.utils.metrics import OKS_SIGMA, Pose3dMetrics, kpt_iou
 
 class Pose3dValidator(DetectionValidator):
     """
-    A class extending the DetectionValidator class for validation based on a pose model.
+    A class extending the DetectionValidator class for validation based on a Pose3d model.
 
-    This validator is specifically designed for pose estimation tasks, handling keypoints and implementing
-    specialized metrics for pose evaluation.
+    This validator is specifically designed for 3D pose estimation tasks, handling keypoints, bone orientations,
+    and implementing specialized metrics for pose3d evaluation.
 
     Attributes:
         sigma (np.ndarray): Sigma values for OKS calculation, either OKS_SIGMA or ones divided by number of keypoints.
         kpt_shape (List[int]): Shape of the keypoints, typically [17, 3] for COCO format.
-        args (dict): Arguments for the validator including task set to "pose".
-        metrics (PoseMetrics): Metrics object for pose evaluation.
+        bone_shape (List[int]): Shape of the bone orientations, typically [13, 3] for 3D unit vectors.
+        args (dict): Arguments for the validator including task set to "pose3d".
+        metrics (Pose3dMetrics): Metrics object for pose3d evaluation.
 
     Methods:
-        preprocess: Preprocess batch by converting keypoints data to float and moving it to the device.
+        preprocess: Preprocess batch by converting keypoints and bones data to float and moving to device.
         get_desc: Return description of evaluation metrics in string format.
-        init_metrics: Initialize pose estimation metrics for YOLO model.
-        _prepare_batch: Prepare a batch for processing by converting keypoints to float and scaling to original
-            dimensions.
-        _prepare_pred: Prepare and scale keypoints in predictions for pose processing.
-        _process_batch: Return correct prediction matrix by computing Intersection over Union (IoU) between
-            detections and ground truth.
-        plot_val_samples: Plot and save validation set samples with ground truth bounding boxes and keypoints.
-        plot_predictions: Plot and save model predictions with bounding boxes and keypoints.
-        save_one_txt: Save YOLO pose detections to a text file in normalized coordinates.
+        init_metrics: Initialize pose3d estimation metrics for YOLO model.
+        postprocess: Postprocess YOLO predictions to extract and reshape keypoints and bones.
+        _prepare_batch: Prepare a batch for processing by converting keypoints and bones to float and scaling.
+        _process_batch: Return correct prediction matrix by computing IoU and adding bone metrics.
+        _add_bone_metrics: Add bone orientation metrics to the metrics object.
+        save_one_txt: Save YOLO pose3d detections to a text file in normalized coordinates.
         pred_to_json: Convert YOLO predictions to COCO JSON format.
         eval_json: Evaluate object detection model using COCO JSON format.
 
     Examples:
         >>> from ultralytics.models.yolo.pose3d import Pose3dValidator
-        >>> args = dict(model="yolo11n-pose3d.pt", data="coco8-pose.yaml")
+        >>> args = dict(model="yolo11n-pose3d.pt", data="panoptic.yaml")
         >>> validator = Pose3dValidator(args=args)
         >>> validator()
     """
 
     def __init__(self, dataloader=None, save_dir=None, args=None, _callbacks=None) -> None:
         """
-        Initialize a Pose3dValidator object for pose estimation validation.
+        Initialize a Pose3dValidator object for 3D pose estimation validation.
 
-        This validator is specifically designed for pose estimation tasks, handling keypoints and implementing
-        specialized metrics for pose evaluation.
+        This validator is specifically designed for 3D pose estimation tasks, handling keypoints, bone orientations,
+        and implementing specialized metrics for pose3d evaluation.
 
         Args:
             dataloader (torch.utils.data.DataLoader, optional): Dataloader to be used for validation.
             save_dir (Path | str, optional): Directory to save results.
-            args (dict, optional): Arguments for the validator including task set to "pose".
+            args (dict, optional): Arguments for the validator including task set to "pose3d".
             _callbacks (list, optional): List of callback functions to be executed during validation.
 
         Examples:
-            >>> from ultralytics.models.yolo.pose import Pose3dValidator
-            >>> args = dict(model="yolo11n-pose.pt", data="coco8-pose.yaml")
+            >>> from ultralytics.models.yolo.pose3d import Pose3dValidator
+            >>> args = dict(model="yolo11n-pose3d.pt", data="panoptic.yaml")
             >>> validator = Pose3dValidator(args=args)
             >>> validator()
 
         Notes:
-            This class extends DetectionValidator with pose-specific functionality. It initializes with sigma values
-            for OKS calculation and sets up PoseMetrics for evaluation. A warning is displayed when using Apple MPS
+            This class extends DetectionValidator with pose3d-specific functionality. It initializes with sigma values
+            for OKS calculation and sets up Pose3dMetrics for evaluation. A warning is displayed when using Apple MPS
             due to a known bug with pose models.
         """
         super().__init__(dataloader, save_dir, args, _callbacks)
@@ -82,7 +80,7 @@ class Pose3dValidator(DetectionValidator):
             )
 
     def preprocess(self, batch: Dict[str, Any]) -> Dict[str, Any]:
-        """Preprocess batch by converting keypoints data to float and moving it to the device."""
+        """Preprocess batch by converting keypoints and bones data to float and moving to the device."""
         batch = super().preprocess(batch)
         batch["keypoints"] = batch["keypoints"].to(self.device).float()
         batch["bones"] = batch["bones"].to(self.device).float()

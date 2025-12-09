@@ -22,7 +22,7 @@
 </div>
 <br>
 
-[Ultralytics](https://www.ultralytics.com/) creates cutting-edge, state-of-the-art (SOTA) [YOLO models](https://www.ultralytics.com/yolo) built on years of foundational research in computer vision and AI. Constantly updated for performance and flexibility, our models are **fast**, **accurate**, and **easy to use**. They excel at [object detection](https://docs.ultralytics.com/tasks/detect/), [tracking](https://docs.ultralytics.com/modes/track/), [instance segmentation](https://docs.ultralytics.com/tasks/segment/), [image classification](https://docs.ultralytics.com/tasks/classify/), and [pose estimation](https://docs.ultralytics.com/tasks/pose/) tasks.
+[Ultralytics](https://www.ultralytics.com/) creates cutting-edge, state-of-the-art (SOTA) [YOLO models](https://www.ultralytics.com/yolo) built on years of foundational research in computer vision and AI. Constantly updated for performance and flexibility, our models are **fast**, **accurate**, and **easy to use**. They excel at [object detection](https://docs.ultralytics.com/tasks/detect/), [tracking](https://docs.ultralytics.com/modes/track/), [instance segmentation](https://docs.ultralytics.com/tasks/segment/), [image classification](https://docs.ultralytics.com/tasks/classify/), [pose estimation](https://docs.ultralytics.com/tasks/pose/), and 3D [pose estimation](https://docs.ultralytics.com/tasks/pose3d/) tasks.
 
 Find detailed documentation in the [Ultralytics Docs](https://docs.ultralytics.com/). Get support via [GitHub Issues](https://github.com/ultralytics/ultralytics/issues/new/choose). Join discussions on [Discord](https://discord.com/invite/ultralytics), [Reddit](https://www.reddit.com/r/ultralytics/), and the [Ultralytics Community Forums](https://community.ultralytics.com/)!
 
@@ -79,6 +79,12 @@ You can use Ultralytics YOLO directly from the Command Line Interface (CLI) with
 ```bash
 # Predict using a pretrained YOLO model (e.g., YOLO11n) on an image
 yolo predict model=yolo11n.pt source='https://ultralytics.com/images/bus.jpg'
+
+# Predict 3D pose (keypoints + bone orientations) using a pretrained YOLO Pose3D model
+yolo predict model=yolo11n-pose3d.pt source='https://ultralytics.com/images/bus.jpg'
+
+# Train a Pose3D model
+yolo train model=yolo11n-pose3d.yaml data=panoptic.yaml epochs=100 imgsz=640
 ```
 
 The `yolo` command supports various tasks and modes, accepting additional arguments like `imgsz=640`. Explore the YOLO [CLI Docs](https://docs.ultralytics.com/usage/cli/) for more examples.
@@ -110,6 +116,22 @@ results[0].show()  # Display results
 
 # Export the model to ONNX format for deployment
 path = model.export(format="onnx")  # Returns the path to the exported model
+
+# --- Pose3D example ---
+# Load a pretrained YOLO11n Pose3D model (predicts 2D keypoints + 3D bone orientations)
+pose3d = YOLO("yolo11n-pose3d.pt")
+
+# Train Pose3D on a 3D pose dataset (e.g., Panoptic)
+pose3d.train(
+    data="panoptic.yaml",
+    epochs=100,
+    imgsz=640,
+)
+
+# Run Pose3D inference
+pose3d_results = pose3d("path/to/image.jpg")
+# Access keypoints and bone orientations
+pose3d_results[0].keypoints, pose3d_results[0].bones
 ```
 
 Discover more examples in the YOLO [Python Docs](https://docs.ultralytics.com/usage/python/).
@@ -191,6 +213,20 @@ See the [Pose Estimation Docs](https://docs.ultralytics.com/tasks/pose/) for usa
 
 - **mAP<sup>val</sup>** values are for single-model single-scale on the [COCO Keypoints val2017](https://docs.ultralytics.com/datasets/pose/coco/) dataset. See [YOLO Performance Metrics](https://docs.ultralytics.com/guides/yolo-performance-metrics/) for details. <br>Reproduce with `yolo val pose data=coco-pose.yaml device=0`
 - **Speed** metrics are averaged over COCO val images using an [Amazon EC2 P4d](https://aws.amazon.com/ec2/instance-types/p4/) instance. CPU speeds measured with [ONNX](https://onnx.ai/) export. GPU speeds measured with [TensorRT](https://developer.nvidia.com/tensorrt) export. <br>Reproduce with `yolo val pose data=coco-pose.yaml batch=1 device=0|cpu`
+
+</details>
+
+<details><summary>Pose3D (Panoptic / custom 3D pose)</summary>
+
+See the [Pose3D Docs](https://docs.ultralytics.com/tasks/pose3d/) for usage examples. Pose3D models predict 2D keypoints and 3D bone orientation unit vectors in camera coordinates. Sample weights are provided for people class datasets.
+
+| Model                                                                                              | size<br><sup>(pixels) | Notes                                          |
+| -------------------------------------------------------------------------------------------------- | --------------------- | ---------------------------------------------- |
+| [YOLO11n-pose3d](https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n-pose3d.pt) | 640                   | 2D keypoints + 3D bone orientations (person)  |
+
+- Pose3D tasks output both 2D keypoints and per-bone 3D unit vectors aligned to camera coordinates.
+- Vertical flip, rotation, shear, and perspective are disabled for Pose3D to preserve 3D bone directions; safe augmentations (translation, scale, mosaic, MixUp/CutMix, color, horizontal flip) remain enabled.
+- Reproduce with `yolo train model=yolo11n-pose3d.yaml data=panoptic.yaml device=0`
 
 </details>
 
