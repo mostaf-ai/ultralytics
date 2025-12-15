@@ -67,7 +67,7 @@ TASK2MODEL = {
     "segment": "yolo11n-seg.pt",
     "classify": "yolo11n-cls.pt",
     "pose": "yolo11n-pose.pt",
-    "pose3d": "yolov8n-pose3d.pt",
+    "pose3d": "yolo11n-pose3d.pt",
     "obb": "yolo11n-obb.pt",
 }
 TASK2METRIC = {
