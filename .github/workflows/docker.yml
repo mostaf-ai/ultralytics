@@ -191,7 +191,7 @@ jobs:
               for derivative in "${derivative_array[@]}"; do
                 # Determine derivative tags
                 derivative_tag=$(echo "$derivative" | sed 's/Dockerfile-/latest-/')
-                derivative_version_tag=$(echo "$derivative_tag" | sed "s/latest/${{ steps.get_version.outputs.version }}/")
+                derivative_version_tag=$(echo "$derivative_tag" | sed "s|latest|${{ steps.get_version.outputs.version }}|")
 
                 echo "Building $derivative -> $derivative_tag"
                 docker build \
@@ -248,7 +248,7 @@ jobs:
 
               # Push version tag if new release
               if [[ "${{ steps.check_tag.outputs.new_release }}" == "true" && "${{ matrix.dockerfile }}" != "Dockerfile-conda" ]]; then
-                version_tag=$(echo "$tag" | sed "s/latest/${{ steps.get_version.outputs.version }}/")
+                version_tag=$(echo "$tag" | sed "s|latest|${{ steps.get_version.outputs.version }}|")
                 docker push "ultralytics/ultralytics:$version_tag"
                 docker push "ghcr.io/ultralytics/ultralytics:$version_tag"
               fi
