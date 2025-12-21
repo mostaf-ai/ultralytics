@@ -205,7 +205,7 @@ class Pose3dValidator(DetectionValidator):
     def _add_bone_metrics(self, preds: Dict[str, torch.Tensor], batch: Dict[str, Any]) -> None:
         """
         Add bone orientation metrics to the metrics object.
-        
+
         Args:
             preds: Dictionary containing predictions with 'bones' key
             batch: Dictionary containing ground truth with 'bones' key
@@ -214,18 +214,120 @@ class Pose3dValidator(DetectionValidator):
             # Extract bone predictions and ground truth
             pred_bones = preds["bones"].cpu().numpy()
             gt_bones = batch["bones"].cpu().numpy()
-            
-            # Get confidence scores for bones (use detection confidence as proxy)
-            if "conf" in preds:
-                confidence_scores = preds["conf"].cpu().numpy()
-                # Expand confidence to match bone dimensions
-                bone_conf = np.tile(confidence_scores[:, np.newaxis], (1, pred_bones.shape[1]))
+
+            # Handle shape mismatch: pred_bones may have max_det predictions,
+            # while gt_bones has actual number of ground truth instances
+            n_gt = len(gt_bones)
+            n_pred = len(pred_bones)
+
+            if n_gt == 0 or n_pred == 0:
+                return  # Skip if no predictions or no ground truth
+
+            matched_pred_indices = []
+
+            # Match predictions to ground truth using bounding box IoU
+            # Only compare matched prediction-ground truth pairs (one-to-one matching)
+            matched_gt_indices = []
+            if "bboxes" in preds and "bboxes" in batch:
+                from ultralytics.utils.metrics import box_iou
+
+                pred_bboxes = preds["bboxes"].cpu()
+                gt_bboxes = batch["bboxes"].cpu()
+
+                if len(pred_bboxes) > 0 and len(gt_bboxes) > 0:
+                    iou_matrix = box_iou(pred_bboxes, gt_bboxes)
+
+                    # Collect all potential matches above threshold
+                    candidates = []
+                    for gt_idx in range(n_gt):
+                        for pred_idx in range(n_pred):
+                            iou_val = iou_matrix[pred_idx, gt_idx].item()
+                            if iou_val > 0.5:  # Only consider matches with IoU > 0.5
+                                candidates.append((pred_idx, gt_idx, iou_val))
+
+                    # Sort by IoU descending (best matches first)
+                    candidates.sort(key=lambda x: x[2], reverse=True)
+
+                    # Greedy one-to-one matching: each pred and GT used only once
+                    used_preds = set()
+                    used_gts = set()
+                    for pred_idx, gt_idx, _ in candidates:
+                        if pred_idx not in used_preds and gt_idx not in used_gts:
+                            matched_pred_indices.append(pred_idx)
+                            matched_gt_indices.append(gt_idx)
+                            used_preds.add(pred_idx)
+                            used_gts.add(gt_idx)
+
+                    if len(matched_pred_indices) > 0:
+                        pred_bones = pred_bones[matched_pred_indices]
+                        gt_bones = gt_bones[matched_gt_indices]
+                    else:
+                        return  # No valid matches
+                else:
+                    return
             else:
-                bone_conf = None
-            
+                # Fallback: truncate to minimum length
+                # WARNING: This assumes predictions and GT are in the same order.
+                # Metrics may be inaccurate if order differs (e.g., when sorted by confidence).
+                LOGGER.warning(
+                    "Bounding boxes unavailable for bone matching. "
+                    "Using order-based fallback - bone metrics may be inaccurate."
+                )
+                min_len = min(n_pred, n_gt)
+                pred_bones = pred_bones[:min_len]
+                gt_bones = gt_bones[:min_len]
+
+            # Validate bone shape consistency
+            if pred_bones.shape[1:] != gt_bones.shape[1:]:
+                LOGGER.warning(
+                    f"Bone shape mismatch: pred {pred_bones.shape} vs gt {gt_bones.shape}. Skipping bone metrics."
+                )
+                return
+
+            # Get confidence scores for bones (use detection confidence as proxy)
+            bone_conf = None
+            if "conf" in preds and len(pred_bones) > 0:
+                confidence_scores = preds["conf"].cpu().numpy()
+                if len(matched_pred_indices) > 0:
+                    # Safety check: ensure all matched indices are valid
+                    # Find which positions in matched_pred_indices correspond to valid confidence scores
+                    valid_positions = [
+                        pos for pos, orig_idx in enumerate(matched_pred_indices)
+                        if orig_idx < len(confidence_scores)
+                    ]
+                    if len(valid_positions) < len(matched_pred_indices):
+                        LOGGER.warning(
+                            f"Some matched indices exceed confidence scores length. "
+                            f"Using {len(valid_positions)}/{len(matched_pred_indices)} matches."
+                        )
+                        # Truncate bones to match valid positions (pred_bones already indexed by matched_pred_indices)
+                        pred_bones = pred_bones[valid_positions]
+                        gt_bones = gt_bones[valid_positions]
+                        if len(pred_bones) == 0:
+                            return
+                        # Get valid indices for confidence scores
+                        valid_indices = [matched_pred_indices[pos] for pos in valid_positions]
+                    else:
+                        valid_indices = matched_pred_indices
+                    confidence_scores = confidence_scores[valid_indices]
+                else:
+                    # Fallback case: ensure we don't exceed available confidence scores
+                    n_available = min(len(confidence_scores), len(pred_bones))
+                    if n_available < len(pred_bones):
+                        LOGGER.warning(
+                            f"Confidence scores ({len(confidence_scores)}) < predictions ({len(pred_bones)}). "
+                            f"Truncating to {n_available} matches."
+                        )
+                        pred_bones = pred_bones[:n_available]
+                        gt_bones = gt_bones[:n_available]
+                        if len(pred_bones) == 0:
+                            return
+                    confidence_scores = confidence_scores[:len(pred_bones)]
+                bone_conf = np.tile(confidence_scores[:, np.newaxis], (1, pred_bones.shape[1]))
+
             # Add bone metrics to the metrics object
             self.metrics.add_bone_metrics(pred_bones, gt_bones, bone_conf)
-            
+
         except Exception as e:
             LOGGER.warning(f"Failed to add bone metrics: {e}")
 
