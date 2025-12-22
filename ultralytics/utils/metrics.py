@@ -1617,16 +1617,14 @@ class Pose3dMetrics(PoseMetrics):
             names (Dict[int, str], optional): Dictionary of class names.
         """
         super().__init__(names)
-        self.bones = Metric()
         self.task = "pose3d"
         
-        # Bone-specific statistics for 3D vector orientations
+        # Bone-specific statistics for 3D vector orientations (2 essential metrics)
         self.stats["bone_angular_error"] = []      # Angular error in degrees between pred and GT bone vectors
         self.stats["bone_cosine_similarity"] = []  # Cosine similarity between pred and GT bone vectors
-        self.stats["bone_magnitude_error"] = []    # Magnitude difference (should be ~0 for unit vectors)
-        self.stats["bone_consistency"] = []        # Consistency across bone predictions
-        self.stats["bone_anatomical_valid"] = []   # Anatomical validity scores
-        self.stats["bone_confidence"] = []         # Confidence scores for bone predictions
+        
+        # Cached bone metrics (computed in process() before stats are cleared)
+        self._cached_bone_metrics = [0.0, 0.0]  # [angular_error, cosine_sim]
 
     def add_bone_metrics(self, pred_bones: np.ndarray, gt_bones: np.ndarray, 
                         confidence_scores: Optional[np.ndarray] = None):
@@ -1636,7 +1634,7 @@ class Pose3dMetrics(PoseMetrics):
         Args:
             pred_bones: Predicted bone vectors (N, num_bones, 3) - should be unit vectors
             gt_bones: Ground truth bone vectors (N, num_bones, 3) - should be unit vectors
-            confidence_scores: Optional confidence scores for bone predictions (N, num_bones)
+            confidence_scores: Optional confidence scores for bone predictions (N, num_bones) - unused
         """
         if pred_bones is None or gt_bones is None or len(pred_bones) == 0:
             return
@@ -1645,26 +1643,14 @@ class Pose3dMetrics(PoseMetrics):
         pred_bones = np.asarray(pred_bones)
         gt_bones = np.asarray(gt_bones)
         
-        # Calculate angular metrics
-        angular_errors, cosine_sims, magnitude_errors = self._calculate_bone_angular_metrics(pred_bones, gt_bones)
-        
-        # Calculate consistency metrics
-        consistency_scores = self._calculate_bone_consistency_metrics(pred_bones)
-        
-        # Calculate anatomical validity (simplified - can be enhanced with more sophisticated checks)
-        anatomical_valid = self._calculate_anatomical_validity(pred_bones)
+        # Calculate angular metrics (the 2 essential bone metrics)
+        angular_errors, cosine_sims = self._calculate_bone_angular_metrics(pred_bones, gt_bones)
         
         # Add to statistics
         self.stats["bone_angular_error"].extend(angular_errors.flatten().tolist())
         self.stats["bone_cosine_similarity"].extend(cosine_sims.flatten().tolist())
-        self.stats["bone_magnitude_error"].extend(magnitude_errors.flatten().tolist())
-        self.stats["bone_consistency"].extend(consistency_scores.tolist())
-        self.stats["bone_anatomical_valid"].extend(anatomical_valid.tolist())
-        
-        if confidence_scores is not None:
-            self.stats["bone_confidence"].extend(confidence_scores.flatten().tolist())
 
-    def _calculate_bone_angular_metrics(self, pred_bones: np.ndarray, gt_bones: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _calculate_bone_angular_metrics(self, pred_bones: np.ndarray, gt_bones: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
         Calculate angular accuracy metrics for bone orientations.
         
@@ -1673,7 +1659,7 @@ class Pose3dMetrics(PoseMetrics):
             gt_bones: Ground truth bone vectors (N, num_bones, 3)
             
         Returns:
-            Tuple of (angular_errors, cosine_similarities, magnitude_errors)
+            Tuple of (angular_errors, cosine_similarities)
         """
         # Normalize vectors to ensure they are unit vectors
         pred_norms = np.linalg.norm(pred_bones, axis=-1, keepdims=True)
@@ -1686,65 +1672,10 @@ class Pose3dMetrics(PoseMetrics):
         cosine_similarities = np.sum(pred_normalized * gt_normalized, axis=-1)
         cosine_similarities = np.clip(cosine_similarities, -1.0, 1.0)  # Ensure valid range
         
-        # Calculate angular error in degrees
+        # Calculate angular error in degrees (use abs to handle direction ambiguity)
         angular_errors = np.arccos(np.abs(cosine_similarities)) * 180.0 / np.pi
         
-        # Calculate magnitude error (should be close to 0 for unit vectors)
-        magnitude_errors = np.abs(pred_norms.flatten() - 1.0)
-        
-        return angular_errors, cosine_similarities, magnitude_errors
-
-    def _calculate_bone_consistency_metrics(self, pred_bones: np.ndarray) -> np.ndarray:
-        """
-        Calculate consistency metrics across bone predictions.
-        
-        Args:
-            pred_bones: Predicted bone vectors (N, num_bones, 3)
-            
-        Returns:
-            Array of consistency scores
-        """
-        if pred_bones.shape[1] < 2:  # Need at least 2 bones for consistency
-            return np.zeros(len(pred_bones))
-        
-        # Normalize vectors
-        norms = np.linalg.norm(pred_bones, axis=-1, keepdims=True)
-        normalized_bones = pred_bones / (norms + 1e-8)
-        
-        # Calculate pairwise cosine similarities between bones in each prediction
-        consistency_scores = []
-        for bones in normalized_bones:
-            # Calculate cosine similarity matrix between all bone pairs
-            cos_sim_matrix = np.dot(bones, bones.T)
-            # Remove diagonal elements (self-similarity)
-            np.fill_diagonal(cos_sim_matrix, 0)
-            # Average consistency (lower is better for orthogonal bones)
-            consistency = np.mean(np.abs(cos_sim_matrix))
-            consistency_scores.append(consistency)
-        
-        return np.array(consistency_scores)
-
-    def _calculate_anatomical_validity(self, pred_bones: np.ndarray) -> np.ndarray:
-        """
-        Calculate simplified anatomical validity scores.
-        
-        Args:
-            pred_bones: Predicted bone vectors (N, num_bones, 3)
-            
-        Returns:
-            Array of validity scores (1.0 = valid, 0.0 = invalid)
-        """
-        # Check if vectors are approximately unit vectors
-        norms = np.linalg.norm(pred_bones, axis=-1)
-        unit_vector_valid = np.all(np.abs(norms - 1.0) < 0.1, axis=-1)  # Within 10% of unit length
-        
-        # Check if vectors have reasonable magnitude (not too small or too large)
-        reasonable_magnitude = np.all((norms > 0.5) & (norms < 2.0), axis=-1)
-        
-        # Combined validity score
-        validity = (unit_vector_valid & reasonable_magnitude).astype(float)
-        
-        return validity
+        return angular_errors, cosine_similarities
 
     def process(self, save_dir: Path = Path("."), plot: bool = False, on_plot=None) -> Dict[str, np.ndarray]:
         """
@@ -1758,88 +1689,52 @@ class Pose3dMetrics(PoseMetrics):
         Returns:
             (Dict[str, np.ndarray]): Dictionary containing concatenated statistics arrays.
         """
+        # Cache bone metrics BEFORE parent's process (which may trigger clear_stats)
+        # This ensures bone metrics are available even after stats are cleared
+        mean_angular_error = np.mean(self.stats["bone_angular_error"]) if self.stats["bone_angular_error"] else 0.0
+        mean_cosine_sim = np.mean(self.stats["bone_cosine_similarity"]) if self.stats["bone_cosine_similarity"] else 0.0
+        self._cached_bone_metrics = [float(mean_angular_error), float(mean_cosine_sim)]
+        
         stats = super().process(save_dir, plot, on_plot=on_plot)  # process box and pose stats
-        
-        # Process 3D bone metrics if available
-        # Note: Bone metrics are collected but not processed through Metric class
-        # to avoid compatibility issues with the existing Metric structure
-        if any(self.stats[key] for key in ["bone_angular_error", "bone_cosine_similarity", "bone_consistency"]):
-            # Store bone metrics in stats for later use, but don't update Metric class
-            pass
-        
         return stats
 
     def _process_bone_metrics(self) -> List[float]:
         """
-        Process 3D bone metrics for unit vector orientations.
+        Return cached bone metrics for unit vector orientations.
         
         Returns:
-            List of bone metric results
+            List of 2 bone metric results: [angular_error, cosine_similarity]
         """
-        # Calculate mean angular error (lower is better)
-        mean_angular_error = np.mean(self.stats["bone_angular_error"]) if self.stats["bone_angular_error"] else 0.0
-        
-        # Calculate mean cosine similarity (higher is better, range [-1, 1])
-        mean_cosine_sim = np.mean(self.stats["bone_cosine_similarity"]) if self.stats["bone_cosine_similarity"] else 0.0
-        
-        # Calculate mean magnitude error (should be close to 0 for unit vectors)
-        mean_magnitude_error = np.mean(self.stats["bone_magnitude_error"]) if self.stats["bone_magnitude_error"] else 0.0
-        
-        # Calculate mean consistency score (lower is better for orthogonal bones)
-        mean_consistency = np.mean(self.stats["bone_consistency"]) if self.stats["bone_consistency"] else 0.0
-        
-        # Calculate anatomical validity rate
-        validity_rate = np.mean(self.stats["bone_anatomical_valid"]) if self.stats["bone_anatomical_valid"] else 0.0
-        
-        # Calculate mean confidence
-        mean_confidence = np.mean(self.stats["bone_confidence"]) if self.stats["bone_confidence"] else 0.0
-        
-        return [
-            mean_angular_error,    # Angular error in degrees
-            mean_cosine_sim,       # Cosine similarity
-            mean_magnitude_error,  # Magnitude error
-            mean_consistency,      # Consistency score
-            validity_rate,         # Anatomical validity rate
-            mean_confidence,       # Mean confidence
-            0.0,                   # Placeholder for p_curve
-            0.0,                   # Placeholder for r_curve
-            0.0,                   # Placeholder for f1_curve
-            0.0                    # Placeholder for px
-        ]
+        return self._cached_bone_metrics
 
     @property
     def keys(self) -> List[str]:
         """Return a list of evaluation metric keys."""
         base_keys = super().keys
         bone_keys = [
-            "metrics/angular_error(B)",      # Bone angular error in degrees
-            "metrics/cosine_sim(B)",         # Bone cosine similarity
-            "metrics/magnitude_error(B)",    # Bone magnitude error
-            "metrics/consistency(B)",        # Bone consistency score
-            "metrics/validity_rate(B)",      # Bone anatomical validity rate
-            "metrics/confidence(B)",         # Bone confidence
+            "metrics/angular_error(B)",      # Bone angular error in degrees (lower is better)
+            "metrics/cosine_sim(B)",         # Bone cosine similarity (higher is better)
         ]
         return base_keys + bone_keys
 
     def mean_results(self) -> List[float]:
         """Return the mean results of box, pose, and 3D pose."""
         base_results = super().mean_results()
-        # Since bone metrics are disabled, return zeros for bone metrics
-        bone_results = [0.0] * 6  # 6 bone metrics: angular_error, cosine_sim, magnitude_error, consistency, validity_rate, confidence
-        return base_results + bone_results
+        # Get the 2 bone metrics from _process_bone_metrics
+        bone_metrics = self._process_bone_metrics()  # [angular_error, cosine_sim]
+        return base_results + bone_metrics
 
     def class_result(self, i: int) -> List[float]:
         """Return the class-wise detection results for a specific class i."""
         base_results = super().class_result(i)
-        bone_results = self.bones.class_result(i) if hasattr(self.bones, 'class_result') else [0.0] * 6
+        # Bone metrics are global (not per-class), so return the same values for all classes
+        bone_results = self._process_bone_metrics()
         return base_results + bone_results
 
     @property
     def maps(self) -> np.ndarray:
         """Return the mean average precision (mAP) per class for box, pose, and 3D pose detections."""
-        base_maps = super().maps
-        bone_maps = self.bones.maps if hasattr(self.bones, 'maps') else np.array([0.0] * 6)
-        return np.concatenate([base_maps, bone_maps])
+        return super().maps  # Bone metrics don't have per-class mAP
 
     @property
     def fitness(self) -> float:
@@ -1847,16 +1742,13 @@ class Pose3dMetrics(PoseMetrics):
         base_fitness = super().fitness
         
         # Bone fitness based on angular accuracy and cosine similarity
-        if hasattr(self.bones, 'mean_results'):
-            bone_metrics = self.bones.mean_results()
-            if len(bone_metrics) >= 2:
-                # Angular error (lower is better) - convert to score [0, 1]
-                angular_score = max(0, 1 - bone_metrics[0] / 90.0)  # 90 degrees = worst case
-                # Cosine similarity (higher is better) - convert from [-1, 1] to [0, 1]
-                cosine_score = (bone_metrics[1] + 1) / 2
-                bone_fitness = (angular_score + cosine_score) / 2
-            else:
-                bone_fitness = 0.0
+        bone_metrics = self._process_bone_metrics()
+        if len(bone_metrics) >= 2 and (self.stats["bone_angular_error"] or self.stats["bone_cosine_similarity"]):
+            # Angular error (lower is better) - convert to score [0, 1]
+            angular_score = max(0, 1 - bone_metrics[0] / 90.0)  # 90 degrees = worst case
+            # Cosine similarity (higher is better) - convert from [-1, 1] to [0, 1]
+            cosine_score = (bone_metrics[1] + 1) / 2
+            bone_fitness = (angular_score + cosine_score) / 2
         else:
             bone_fitness = 0.0
         
@@ -1865,22 +1757,12 @@ class Pose3dMetrics(PoseMetrics):
     @property
     def curves(self) -> List[str]:
         """Return a list of curves for accessing specific metrics curves."""
-        base_curves = super().curves
-        bone_curves = [
-            "Angular-Error-Distribution(B)",
-            "Cosine-Similarity-Distribution(B)",
-            "Magnitude-Error-Distribution(B)",
-            "Consistency-Score-Distribution(B)",
-            "Validity-Rate-vs-Confidence(B)",
-        ]
-        return base_curves + bone_curves
+        return super().curves  # No additional bone curves
 
     @property
     def curves_results(self) -> List[List]:
         """Return a list of computed performance metrics and statistics."""
-        base_curves = super().curves_results
-        bone_curves = self.bones.curves_results if hasattr(self.bones, 'curves_results') else []
-        return base_curves + bone_curves
+        return super().curves_results  # No additional bone curves
 
     def summary(self, normalize: bool = True, decimals: int = 5) -> List[Dict[str, Any]]:
         """
@@ -1901,40 +1783,26 @@ class Pose3dMetrics(PoseMetrics):
         """
         base_summary = super().summary(normalize, decimals)
         
-        # Add 3D bone metrics to summary
-        bone_metrics = {
-            "Bones-AngularError": self.bones.angular_error if hasattr(self.bones, 'angular_error') else [0.0] * len(self.names),
-            "Bones-CosineSim": self.bones.cosine_sim if hasattr(self.bones, 'cosine_sim') else [0.0] * len(self.names),
-            "Bones-MagnitudeError": self.bones.magnitude_error if hasattr(self.bones, 'magnitude_error') else [0.0] * len(self.names),
-            "Bones-Consistency": self.bones.consistency if hasattr(self.bones, 'consistency') else [0.0] * len(self.names),
-            "Bones-ValidityRate": self.bones.validity_rate if hasattr(self.bones, 'validity_rate') else [0.0] * len(self.names),
-            "Bones-Confidence": self.bones.confidence if hasattr(self.bones, 'confidence') else [0.0] * len(self.names),
-        }
-        
-        for i, s in enumerate(base_summary):
-            s.update({**{k: round(v[i], decimals) for k, v in bone_metrics.items()}})
+        # Add 3D bone metrics to summary (global metrics, same for all classes)
+        bone_metrics = self._process_bone_metrics()
+        for s in base_summary:
+            s["Bones-AngularError"] = round(bone_metrics[0], decimals)
+            s["Bones-CosineSim"] = round(bone_metrics[1], decimals)
         
         return base_summary
 
     def get_bone_metrics_summary(self) -> Dict[str, float]:
         """
-        Get a summary of bone-specific metrics.
+        Get a summary of bone-specific metrics (uses cached values).
         
         Returns:
             Dictionary containing bone metrics summary
         """
-        if not any(self.stats[key] for key in ["bone_angular_error", "bone_cosine_similarity"]):
+        bone_metrics = self._process_bone_metrics()
+        if bone_metrics[0] == 0.0 and bone_metrics[1] == 0.0:
             return {}
         
-        summary = {
-            "mean_angular_error": np.mean(self.stats["bone_angular_error"]),
-            "std_angular_error": np.std(self.stats["bone_angular_error"]),
-            "mean_cosine_similarity": np.mean(self.stats["bone_cosine_similarity"]),
-            "std_cosine_similarity": np.std(self.stats["bone_cosine_similarity"]),
-            "mean_magnitude_error": np.mean(self.stats["bone_magnitude_error"]),
-            "mean_consistency": np.mean(self.stats["bone_consistency"]),
-            "validity_rate": np.mean(self.stats["bone_anatomical_valid"]),
-            "mean_confidence": np.mean(self.stats["bone_confidence"]) if self.stats["bone_confidence"] else 0.0,
+        return {
+            "mean_angular_error": bone_metrics[0],
+            "mean_cosine_similarity": bone_metrics[1],
         }
-        
-        return summary

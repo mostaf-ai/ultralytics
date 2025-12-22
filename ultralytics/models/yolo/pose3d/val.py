@@ -88,7 +88,7 @@ class Pose3dValidator(DetectionValidator):
 
     def get_desc(self) -> str:
         """Return description of evaluation metrics in string format."""
-        return ("%22s" + "%11s" * 10 + "%11s" * 6) % (
+        return ("%22s" + "%11s" * 10 + "%11s" * 2) % (
             "Class",
             "Images",
             "Instances",
@@ -101,11 +101,7 @@ class Pose3dValidator(DetectionValidator):
             "mAP50",
             "mAP50-95)",
             "Bones(AngErr",
-            "CosSim",
-            "MagErr",
-            "Cons",
-            "ValRate",
-            "Conf)",
+            "CosSim)",
         )
 
     def init_metrics(self, model: torch.nn.Module) -> None:
