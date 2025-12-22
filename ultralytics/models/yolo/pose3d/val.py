@@ -219,10 +219,8 @@ class Pose3dValidator(DetectionValidator):
             if n_gt == 0 or n_pred == 0:
                 return  # Skip if no predictions or no ground truth
 
-            matched_pred_indices = []
-
             # Match predictions to ground truth using bounding box IoU
-            # Only compare matched prediction-ground truth pairs (one-to-one matching)
+            matched_pred_indices = []
             matched_gt_indices = []
             if "bboxes" in preds and "bboxes" in batch:
                 from ultralytics.utils.metrics import box_iou
@@ -263,12 +261,6 @@ class Pose3dValidator(DetectionValidator):
                     return
             else:
                 # Fallback: truncate to minimum length
-                # WARNING: This assumes predictions and GT are in the same order.
-                # Metrics may be inaccurate if order differs (e.g., when sorted by confidence).
-                LOGGER.warning(
-                    "Bounding boxes unavailable for bone matching. "
-                    "Using order-based fallback - bone metrics may be inaccurate."
-                )
                 min_len = min(n_pred, n_gt)
                 pred_bones = pred_bones[:min_len]
                 gt_bones = gt_bones[:min_len]
@@ -280,49 +272,8 @@ class Pose3dValidator(DetectionValidator):
                 )
                 return
 
-            # Get confidence scores for bones (use detection confidence as proxy)
-            bone_conf = None
-            if "conf" in preds and len(pred_bones) > 0:
-                confidence_scores = preds["conf"].cpu().numpy()
-                if len(matched_pred_indices) > 0:
-                    # Safety check: ensure all matched indices are valid
-                    # Find which positions in matched_pred_indices correspond to valid confidence scores
-                    valid_positions = [
-                        pos for pos, orig_idx in enumerate(matched_pred_indices)
-                        if orig_idx < len(confidence_scores)
-                    ]
-                    if len(valid_positions) < len(matched_pred_indices):
-                        LOGGER.warning(
-                            f"Some matched indices exceed confidence scores length. "
-                            f"Using {len(valid_positions)}/{len(matched_pred_indices)} matches."
-                        )
-                        # Truncate bones to match valid positions (pred_bones already indexed by matched_pred_indices)
-                        pred_bones = pred_bones[valid_positions]
-                        gt_bones = gt_bones[valid_positions]
-                        if len(pred_bones) == 0:
-                            return
-                        # Get valid indices for confidence scores
-                        valid_indices = [matched_pred_indices[pos] for pos in valid_positions]
-                    else:
-                        valid_indices = matched_pred_indices
-                    confidence_scores = confidence_scores[valid_indices]
-                else:
-                    # Fallback case: ensure we don't exceed available confidence scores
-                    n_available = min(len(confidence_scores), len(pred_bones))
-                    if n_available < len(pred_bones):
-                        LOGGER.warning(
-                            f"Confidence scores ({len(confidence_scores)}) < predictions ({len(pred_bones)}). "
-                            f"Truncating to {n_available} matches."
-                        )
-                        pred_bones = pred_bones[:n_available]
-                        gt_bones = gt_bones[:n_available]
-                        if len(pred_bones) == 0:
-                            return
-                    confidence_scores = confidence_scores[:len(pred_bones)]
-                bone_conf = np.tile(confidence_scores[:, np.newaxis], (1, pred_bones.shape[1]))
-
             # Add bone metrics to the metrics object
-            self.metrics.add_bone_metrics(pred_bones, gt_bones, bone_conf)
+            self.metrics.add_bone_metrics(pred_bones, gt_bones)
 
         except Exception as e:
             LOGGER.warning(f"Failed to add bone metrics: {e}")
