@@ -237,7 +237,7 @@ def build_yolo_dataset(
         img_path=img_path,
         imgsz=cfg.imgsz,
         batch_size=batch,
-        augment=(mode == "train") & (cfg.task != "pose3d"),  # augmentation
+        augment=(mode == "train"),  # augmentation enabled for all tasks including pose3d
         hyp=cfg,  # TODO: probably add a get_hyps_from_cfg function
         rect=cfg.rect or rect,  # rectangular batches
         cache=cfg.cache or None,
